@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Note Reader</title>
+<style>
+:root{--bg:#f3f1ec;--ink:#1d2330;--mute:#6b7280;--card:#fff;--line:#c9c5bb;--acc:#2b5fd9;--ok:#1f9d55;--bad:#d64545;--wk:#fffdf8;--bk:#1d2330;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root:not([data-theme="light"]){}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171f;--ink:#eceff6;--mute:#98a1b3;--card:#1c202b;--line:#3a4152;--acc:#7aa2ff;--wk:#e9e6de;--bk:#0c0e13;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14171f;--ink:#eceff6;--mute:#98a1b3;--card:#1c202b;--line:#3a4152;--acc:#7aa2ff;--wk:#e9e6de;--bk:#0c0e13;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:14px}
+h1{font-size:1.3rem;margin:4px 0 2px}
+#status{font-size:.85rem;color:var(--mute);margin-bottom:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.lbl{font-size:.85rem;color:var(--mute);min-width:52px}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--card);color:var(--ink);padding:9px 14px;font-size:.95rem;font-family:inherit}
+.seg button[aria-pressed="true"]{background:var(--acc);color:#fff}
+#stage{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:8px;transition:border-color .15s}
+#stage.ok{border-color:var(--ok)}#stage.bad{border-color:var(--bad)}
+svg{display:block;width:100%;height:auto}
+#msg{min-height:1.6em;text-align:center;font-size:1.05rem;margin:10px 0 2px}
+#score{text-align:center;color:var(--mute);font-size:.9rem;margin-bottom:12px}
+#kb{position:relative;height:150px;display:flex;user-select:none;touch-action:manipulation}
+.w{flex:1;border:1px solid var(--bk);background:var(--wk);border-radius:0 0 6px 6px;position:relative}
+.w.on{background:var(--acc)}
+.b{position:absolute;top:0;height:92px;width:6%;background:var(--bk);border-radius:0 0 4px 4px;z-index:2}
+.b.on{background:var(--acc)}
+.w .n{position:absolute;bottom:4px;width:100%;text-align:center;font-size:.7rem;color:#555}
+</style>
+</head>
+<body>
+<main>
+<h1>Note Reader</h1>
+<div id="status">Tap the keys below, or choose MIDI or Mic to play your piano.</div>
+<div class="row"><span class="lbl">Mode</span>
+<div class="seg" id="mode"><button data-v="sheet" aria-pressed="true">Sheet music</button><button data-v="key" aria-pressed="false">Key</button></div></div>
+<div class="row"><span class="lbl">Sound</span>
+<div class="seg" id="snd"><button data-v="off" aria-pressed="false">Off</button><button data-v="note" aria-pressed="true">Note</button><button data-v="letter" aria-pressed="false">Letter</button></div></div>
+<div class="row"><span class="lbl">Input</span>
+<div class="seg" id="inp"><button data-v="screen" aria-pressed="true">Screen</button><button data-v="midi" aria-pressed="false">MIDI</button><button data-v="mic" aria-pressed="false">Mic</button></div></div>
+<div class="row"><span class="lbl">Prompt</span>
+<div class="seg" id="hear"><button data-v="on" aria-pressed="true">Hear first</button><button data-v="off" aria-pressed="false">Silent</button></div></div>
+<div id="stage"><svg id="art" viewBox="0 0 320 170" role="img" aria-label="Note to play"></svg></div>
+<div id="msg"></div>
+<div id="score"></div>
+<div id="kb" aria-label="On-screen keyboard"></div>
+</main>
+<script>
+var NAMES=["C","C sharp","D","D sharp","E","F","F sharp","G","G sharp","A","A sharp","B"];
+var LET=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+var WH=[0,2,4,5,7,9,11],BLACK={1:1,3:1,6:1,8:1,10:1};
+var mode="sheet",snd="note",target=null,locked=false,right=0,tries=0,streak=0,ctx=null;
+var $=function(i){return document.getElementById(i)};
+
+function step(m){var o=Math.floor(m/12)-1,p=m%12;return (o-4)*7+WH.indexOf(p)}
+function pick(){
+  var prev=target,t;
+  do{
+    if(mode==="sheet"){var w=[];for(var m=60;m<=81;m++)if(!BLACK[m%12])w.push(m);t=w[Math.floor(Math.random()*w.length)]}
+    else t=60+Math.floor(Math.random()*12);
+  }while(t===prev);
+  target=t;draw();
+  $("msg").textContent=mode==="sheet"?"Play the note on the staff":"Play the highlighted key";
+  setTimeout(playTarget,250);
+}
+function draw(){
+  var s='';
+  if(mode==="sheet"){
+    var yb=120;
+    for(var i=0;i<5;i++){var y=yb-i*14;s+='<line x1="10" x2="310" y1="'+y+'" y2="'+y+'" stroke="currentColor" stroke-width="1.5"/>'}
+    s+='<text x="14" y="124" font-size="76" fill="currentColor" font-family="\'Noto Music\',\'Segoe UI Symbol\',serif">\uD834\uDD1E</text>';
+    var st=step(target),ny=yb-(st-2)*7,cx=190;
+    if(st<=0)s+='<line x1="'+(cx-18)+'" x2="'+(cx+18)+'" y1="134" y2="134" stroke="currentColor" stroke-width="1.5"/>';
+    if(st>=12)s+='<line x1="'+(cx-18)+'" x2="'+(cx+18)+'" y1="50" y2="50" stroke="currentColor" stroke-width="1.5"/>';
+    s+='<ellipse cx="'+cx+'" cy="'+ny+'" rx="9.5" ry="7" transform="rotate(-20 '+cx+' '+ny+')" fill="currentColor"/>';
+    var up=st<6;
+    s+=up?'<line x1="'+(cx+9)+'" x2="'+(cx+9)+'" y1="'+ny+'" y2="'+(ny-42)+'" stroke="currentColor" stroke-width="2"/>':'<line x1="'+(cx-9)+'" x2="'+(cx-9)+'" y1="'+ny+'" y2="'+(ny+42)+'" stroke="currentColor" stroke-width="2"/>';
+  }else{
+    var ws=[0,2,4,5,7,9,11],W=40,x0=20,i2;
+    for(i2=0;i2<7;i2++){var on=target%12===ws[i2];s+='<rect x="'+(x0+i2*W)+'" y="10" width="'+W+'" height="150" rx="4" fill="'+(on?'var(--acc)':'var(--wk)')+'" stroke="var(--bk)" stroke-width="1.5"/>'}
+    var bp={1:0,3:1,6:3,8:4,10:5};
+    for(var k in bp){var on2=target%12==k;s+='<rect x="'+(x0+(bp[k]+1)*W-12)+'" y="10" width="24" height="92" rx="3" fill="'+(on2?'var(--acc)':'var(--bk)')+'" stroke="var(--bk)" stroke-width="1.5"/>'}
+  }
+  $("art").innerHTML=s;
+}
+function playTarget(){
+  if(locked||target===null)return;
+  if(!promptOn)return;
+  if(snd==="note"){muteUntil=Date.now()+1300;tone(target)}
+  else if(snd==="letter"){muteUntil=Date.now()+1800;say(target)}
+}
+function tone(m){
+  try{ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();if(ctx.state==="suspended")ctx.resume();
+  var o=ctx.createOscillator(),g=ctx.createGain(),t=ctx.currentTime;
+  o.type="triangle";o.frequency.value=440*Math.pow(2,(m-69)/12);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.35,t+.01);g.gain.exponentialRampToValueAtTime(.001,t+.9);
+  o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+.95)}catch(e){}
+}
+function say(m){
+  try{if(!window.speechSynthesis)return;speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(NAMES[m%12]);u.rate=1.1;speechSynthesis.speak(u)}catch(e){}
+}
+function hit(m){
+  var el=document.querySelector('[data-m="'+m+'"]');if(el){el.classList.add("on");setTimeout(function(){el.classList.remove("on")},180)}
+  if(snd==="note")tone(m);else if(snd==="letter")say(m);
+  if(input==="mic"&&snd!=="off")muteUntil=Date.now()+1100;
+  if(locked||target===null)return;
+  tries++;
+  var good=(mode==="sheet"&&input!=="mic")?m===target:m%12===target%12;
+  var st=$("stage");
+  if(good){
+    right++;streak++;locked=true;st.className="ok";$("msg").textContent="Correct, that is "+LET[target%12];upd();
+    setTimeout(function(){st.className="";locked=false;pick()},1100);
+  }else{
+    streak=0;st.className="bad";$("msg").textContent="That was "+LET[m%12]+". Try again";upd();
+    setTimeout(function(){if(!locked)st.className=""},400);
+  }
+}
+function upd(){$("score").textContent=right+" correct of "+tries+" tries. Streak "+streak}
+function buildKb(){
+  var k=$("kb"),wc=0,h='';
+  for(var m=60;m<=83;m++)if(!BLACK[m%12]){h+='<div class="w" data-m="'+m+'"><span class="n">'+(m%12===0?"C"+(Math.floor(m/12)-1):"")+'</span></div>';wc++}
+  for(var m2=60,w=0;m2<=83;m2++){
+    if(BLACK[m2%12]){h+='<div class="b" data-m="'+m2+'" style="left:calc('+(w/wc*100)+'% - 3%)"></div>'}else w++;
+  }
+  k.innerHTML=h;
+  k.addEventListener("pointerdown",function(e){var t=e.target.closest("[data-m]");if(t){e.preventDefault();hit(+t.dataset.m)}});
+}
+function seg(id,fn){
+  $(id).addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;
+    [].forEach.call($(id).children,function(c){c.setAttribute("aria-pressed",c===b)});fn(b.dataset.v)});
+}
+seg("mode",function(v){mode=v;locked=false;$("stage").className="";pick()});
+seg("snd",function(v){snd=v;if(v!=="letter"&&window.speechSynthesis)speechSynthesis.cancel()});
+
+function bindMidi(acc){
+  var n=0;
+  acc.inputs.forEach(function(inp){n++;inp.onmidimessage=function(e){var d=e.data;if(input==="midi"&&(d[0]&0xF0)===0x90&&d[2]>0)hit(d[1])}});
+  if(input==="midi")$("status").textContent=n?"Connected: "+n+" MIDI device"+(n>1?"s":"")+". Play your piano.":"No MIDI device found. Plug in your piano, or tap the keys below.";
+}
+var midiAcc=null;
+function initMidi(){
+if(midiAcc){bindMidi(midiAcc);return}
+if(navigator.requestMIDIAccess){
+  navigator.requestMIDIAccess().then(function(a){midiAcc=a;bindMidi(a);a.onstatechange=function(){bindMidi(a)}},
+    function(){$("status").textContent="MIDI access was blocked. Tap the keys below, or allow MIDI in your browser."});
+}else $("status").textContent="This browser has no MIDI support. Open in Chrome, or tap the keys below.";
+}
+
+var input='screen',promptOn=true,micStream=null,micTimer=null,micAn=null,muteUntil=0,lastM=-1,cand=-1,candN=0;
+function detect(b,sr){
+  var n=b.length,i,r=0,lag,s,j,mx=0,c=[];
+  for(i=0;i<n;i++)r+=b[i]*b[i];
+  if(Math.sqrt(r/n)<0.015)return -1;
+  var lo=Math.floor(sr/1100),hi=Math.floor(sr/65);
+  for(lag=lo;lag<=hi;lag++){s=0;for(j=0;j<n-lag;j++)s+=b[j]*b[j+lag];c[lag]=s;if(s>mx)mx=s}
+  if(mx<=0)return -1;
+  for(lag=lo+1;lag<hi;lag++){
+    if(c[lag]>0.85*mx&&c[lag]>=c[lag-1]&&c[lag]>=c[lag+1])return Math.round(69+12*Math.log((sr/lag)/440)/Math.LN2);
+  }
+  return -1;
+}
+function micStop(){
+  if(micTimer){clearInterval(micTimer);micTimer=null}
+  if(micStream){micStream.getTracks().forEach(function(t){t.stop()});micStream=null}
+}
+function micStart(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('status').textContent='Microphone is not available here. Open the page in Chrome.';return}
+  $('status').textContent='Asking for microphone…';
+  navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}}).then(function(s){
+    if(input!=='mic'){s.getTracks().forEach(function(t){t.stop()});return}
+    micStream=s;
+    ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==='suspended')ctx.resume();
+    micAn=ctx.createAnalyser();micAn.fftSize=2048;
+    ctx.createMediaStreamSource(s).connect(micAn);
+    var buf=new Float32Array(2048);
+    $('status').textContent='Listening. Play one note at a time. Mic mode ignores the octave.';
+    micTimer=setInterval(function(){
+      if(Date.now()<muteUntil){cand=-1;candN=0;return}
+      micAn.getFloatTimeDomainData(buf);
+      var m=detect(buf,ctx.sampleRate);
+      if(m<0){lastM=-1;cand=-1;candN=0;return}
+      if(m===cand)candN++;else{cand=m;candN=1}
+      if(candN>=3&&m!==lastM){lastM=m;hit(m)}
+    },60);
+  },function(){$('status').textContent='Microphone access was blocked. Allow it in Chrome site settings, or pick another input.'});
+}
+seg('inp',function(v){
+  input=v;micStop();lastM=-1;
+  if(v==='screen')$('status').textContent='Tap the keys below to answer.';
+  else if(v==='midi')initMidi();
+  else micStart();
+});
+seg('hear',function(v){promptOn=v==='on'});
+$("stage").addEventListener("click",playTarget);
+buildKb();upd();pick();
+</script>
+</body>
+</html>
